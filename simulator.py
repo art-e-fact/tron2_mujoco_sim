@@ -69,10 +69,15 @@ def load_variant_config(root_dir: str, robot_type: str):
     return joint_names, sensor_joint_names, xml_path
 
 
+def headless_from_env():
+    return os.getenv("HEADLESS", "").lower() in ("1", "true", "yes")
+
+
 class SimulatorMujoco:
     JOY_BTNS = {"R1": (5, 7)}
 
-    def __init__(self, asset_path, joint_names, sensor_joint_names, robot):
+    def __init__(self, asset_path, joint_names, sensor_joint_names, robot,
+                 headless=False):
         self.robot = robot
         self.joint_names = joint_names
         self.sensor_joint_names = sensor_joint_names
@@ -81,15 +86,18 @@ class SimulatorMujoco:
         self.mujoco_model = mujoco.MjModel.from_xml_path(asset_path)
         self.mujoco_data = mujoco.MjData(self.mujoco_model)
 
-        self.viewer = viewer.launch_passive(
-            self.mujoco_model,
-            self.mujoco_data,
-            key_callback=self.key_callback,
-            show_left_ui=True,
-            show_right_ui=True,
-        )
-        self.viewer.cam.distance = 10
-        self.viewer.cam.elevation = -20
+        if headless:
+            self.viewer = None
+        else:
+            self.viewer = viewer.launch_passive(
+                self.mujoco_model,
+                self.mujoco_data,
+                key_callback=self.key_callback,
+                show_left_ui=True,
+                show_right_ui=True,
+            )
+            self.viewer.cam.distance = 10
+            self.viewer.cam.elevation = -20
 
         self.dt = self.mujoco_model.opt.timestep
         self.fps = 1.0 / self.dt
@@ -243,7 +251,7 @@ class SimulatorMujoco:
     def run(self):
         frame_count = 0
         self.rate = Rate(self.fps)
-        while self.viewer.is_running():
+        while self.viewer is None or self.viewer.is_running():
             self._poll_pygame_reset()
             if self._reset_requested:
                 self._reset_requested = False
@@ -256,7 +264,7 @@ class SimulatorMujoco:
             self.robot.publishRobotStateForSim(self.robot_state)
             self._publish_imu()
 
-            if frame_count % 20 == 0:
+            if self.viewer is not None and frame_count % 20 == 0:
                 self.viewer.sync()
             frame_count += 1
             self.rate.sleep()
@@ -280,5 +288,6 @@ if __name__ == "__main__":
         sys.exit(1)
 
     print(f"*** Model File Loaded: robot-description/tron2/{robot_type}/xml/robot.xml ***")
-    simulator = SimulatorMujoco(model_path, joint_names, sensor_joint_names, robot)
+    simulator = SimulatorMujoco(model_path, joint_names, sensor_joint_names, robot,
+                                headless=headless_from_env())
     simulator.run()
